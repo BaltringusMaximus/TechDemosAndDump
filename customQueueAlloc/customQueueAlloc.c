@@ -5,6 +5,11 @@ when appending a packet to the queue, it checks if there is enough room in the q
 splitBufferIntoSegments takes a big fat buffer and turns it into N queues if bQueue == 1, otherwise it'll simply turn it into N normal bufferinos
 
 TO DO: make a mapping of queue ID - pointer
+
+27092026 added queue id coordinate logic so that it looks more like this:
+11 12 13 14 15 16 17 18 19 1A
+21 22 23 24 ....
+rather than merely incrementing by 1
 */
 
 
@@ -13,8 +18,8 @@ TO DO: make a mapping of queue ID - pointer
 #include<string.h>
 #include<stdbool.h>
 
-#define sizeBuffer 3000
-#define numberOfQueue 3
+#define sizeBuffer 20000
+#define numberOfQueue 20
 
 int intStop = 0;
 int currentQueueId = 0x11;
@@ -197,6 +202,7 @@ void packetAllocAndCopyToQueue(unsigned char* queue, structPacket* packet, int s
 
 void splitBufferIntoSegments(unsigned char* buffer, int numberOfSegment, bool bQueue, unsigned char* queueMappingArray)
 {
+	int id = 0x11;
 	headerFreeMemory headerCurrentSegment;
 	queueMapping* currentQueueMapping = queueMappingArray;
 	printf("currentQueueMapping = %p queueMappingArray = %p\n", currentQueueMapping, queueMappingArray);
@@ -212,10 +218,13 @@ void splitBufferIntoSegments(unsigned char* buffer, int numberOfSegment, bool bQ
 		printf("%p\n", buffer + headerCurrentSegment.offset);
 //		printBufferWithSize(buffer, sizeBuffer);
 		memcpy((buffer + headerCurrentSegment.offset), &headerCurrentSegment, sizeof(headerFreeMemory));
-		if (bQueue == 1) { queueFromBuffer(buffer + headerCurrentSegment.offset, NULL, 0x11 + i); }
+		//if (i % 10 == 0) { id = id + 0x10; }
+		if (i != 0) { id = id + (int)(0x10 * ((i - i % 10) / i)) + (int)(((i % 10 - (i - 1) % 10))); }
+		
+		if (bQueue == 1) { queueFromBuffer(buffer + headerCurrentSegment.offset, NULL, id); }
 		if (queueMappingArray != NULL) 
 		{ 
-			currentQueueMapping->id = 0x11 + i; 
+			currentQueueMapping->id = id; 
 			currentQueueMapping->buffer = buffer;
 			currentQueueMapping->queueAddress = buffer + headerCurrentSegment.offset;
 			currentQueueMapping->queueOffset = headerCurrentSegment.offset;

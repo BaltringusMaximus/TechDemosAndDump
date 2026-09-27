@@ -5,3 +5,11 @@ a FIFO order and elements in the Queue are not supposed to be Freed.
 It allows a time complexity of O(1) when adding a new element to the buffer, instead of O(n) in cutomAlloc, where each element can be retrieved individually and where fragmentation is an issue.
 Once a packet is "generated" by the program, it checks the headerQueue of the queue to know if it can push a packet at the end of the queue, and where to push it.
 WIP
+
+270926 added this line of code 
+in "splitBufferIntoSegments":
+/*
+if (i != 0) { id = id + (int)(0x10 * ((i - i % 10) / i)) + (int)(((i % 10 - (i - 1) % 10))); }
+*/
+so that the id increments by 7 instead of 1 each 10 queues. it's used to label queues using hex values as x and y coordinates rather than a mere number. 
+first digit is the WDF queue number, while the second digit is the Io control code number (10 of each)

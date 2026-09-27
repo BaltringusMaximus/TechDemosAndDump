@@ -1,4 +1,4 @@
-/*
+﻿/*
 INFO: 
 total queue size INCLUDES the queue header size
 when appending a packet to the queue, it checks if there is enough room in the queue by checking the total size minus the offset, the offset starts at sizeof(headerqueue)
@@ -13,14 +13,19 @@ TO DO: make a mapping of queue ID - pointer
 #include<string.h>
 #include<stdbool.h>
 
-#define sizeBuffer 10000
-#define numberOfQueue 10
+#define sizeBuffer 3000
+#define numberOfQueue 3
+
+int intStop = 0;
+int currentQueueId = 0x11;
+
 
 typedef struct queueMapping
 {
 	int id;
 	int queueOffset;
-
+	int toBeRead;
+	int checked;
 	unsigned char* buffer;
 	
 	unsigned char* queueAddress;
@@ -65,6 +70,9 @@ void packetAllocAndCopyToQueue(unsigned char* queue, structPacket* packet, int s
 void splitBufferIntoSegments(unsigned char* buffer, int numberOfSegment, bool bQueue, unsigned char* queueMappingArray);
 void printQueueMappingArray(unsigned char* queueMappingArray, int numOfQueue);
 void printQueueMappingArrayReadable(unsigned char* queueMappingArray, int numOfQueue);
+void queueCheck(int* id, int size, unsigned char* mappingArray, unsigned char* queue);
+void retrieveQueueAddressFromId(int id, unsigned char* mappingArray, unsigned char* queue);
+void readAndInitQueue(int id, unsigned char* mappingArray);
 //void packetCopyToQueue(unsigned char* packet, unsigned char* queue);
 
 
@@ -244,11 +252,68 @@ void printQueueMappingArrayReadable(unsigned char* queueMappingArray, int numOfQ
 	printf("list of all registered Queues\n");
 	for (int j = 0; j < numOfQueue; j++)
 	{
-		printf("queue ID = %X\nqueue offset = %d\nqueue address = %p\nbuffer address = %p\n", currentQueue->id, currentQueue->queueOffset, currentQueue->queueAddress, currentQueue->buffer);
+		printf("queue ID = %X\nqueue offset = %d\nqueue address = %p\nbuffer address = %p\nPending to be read? = %d\nhas been checked? = %d\n", currentQueue->id, currentQueue->queueOffset, currentQueue->queueAddress, currentQueue->buffer,currentQueue->toBeRead,currentQueue->checked);
 		currentQueue += 1;
 		printf("\n");
 		queueMappingArray += sizeof(queueMapping);
 	}
+
+	return;
+}
+
+void queueCheck(int* id, int size, unsigned char* mappingArray, unsigned char* queue)
+{
+	
+	printf("id = %X\n", *id);
+	queueMapping* queueCheckCleanUp = (queueMapping*)mappingArray;
+	queueMapping* currentQueueMapped = (queueMapping*)(mappingArray + (*id-0x11)*sizeof(queueMapping));
+	headerQueue* currentQueue = (headerQueue*)currentQueueMapped->queueAddress;
+	printf("queue stats: %X %d %d %d\n", currentQueue->id, currentQueue->numberOfElement, currentQueue->offset, currentQueue->totalSize);
+	if (size + sizeof(headerPacket) > (currentQueue->totalSize - currentQueue->offset) || currentQueueMapped->checked == 1/* && (*id) < (0x11 + numberOfQueue - 1) */ )
+	{ 
+		currentQueueMapped->checked = 1;
+		printf("not enough room to append packet to the queue\n");
+		currentQueueMapped->toBeRead = 1;
+//		if ((*id + 0x1) >= (0x11 + numberOfQueue)) { printf("no queue shall bear your load :^3\n"); return; }
+		if ((*id + 0x1) >= (0x11 + numberOfQueue)) { *id = 0x11; printf("returning to beginning of mapping\n"); }
+		else { *id = (currentQueueMapped + 1)->id; }
+		if ((currentQueueMapped + 1)->checked == 1) { printf("full loop completed, no queue shall bear your load :^3\n"); return; }
+		printf("new id = %X\n", *id);
+		queueCheck(id,size,mappingArray,queue);
+		
+	}
+	printf("queue %X selected\n", *id);
+	printQueueMappingArray(mappingArray, numberOfQueue);
+	for (int i = 0; i < numberOfQueue; i++)
+	{
+		printf("%p %p %d %d %d %d\n", queueCheckCleanUp->buffer, queueCheckCleanUp->queueAddress, queueCheckCleanUp->checked, queueCheckCleanUp->id, queueCheckCleanUp->queueOffset, queueCheckCleanUp->toBeRead);
+		queueCheckCleanUp->checked = 0;
+		queueCheckCleanUp += 1;
+	}
+	printQueueMappingArray(mappingArray, numberOfQueue);
+	return;
+}
+
+void retrieveQueueAddressFromId(int id, unsigned char* mappingArray, unsigned char** queue)
+{
+	queueMapping* currentQueueMapped = (queueMapping*)(mappingArray + (id-0x11) * sizeof(queueMapping));
+	*queue = currentQueueMapped->queueAddress;
+	printf("queue %X address %p\n", id, *queue);
+	return;
+}
+
+void readAndInitQueue(int id, unsigned char* mappingArray)
+{
+	unsigned char* queue;
+	retrieveQueueAddressFromId(id, mappingArray, &queue);
+	headerQueue* currentQueue = (headerQueue*)queue;
+	queueMapping* currentQueueMapped = (queueMapping*)(mappingArray + (currentQueue->id-0x11) * sizeof(queueMapping));
+	printf("readAndInit queue stats = ID %d #elts %d offset %d total size %d\n", currentQueue->id, currentQueue->numberOfElement, currentQueue->offset, currentQueue->totalSize);
+	memset(queue + sizeof(headerQueue), 0, currentQueue->totalSize - sizeof(headerQueue));
+	currentQueue->numberOfElement = 0;
+	currentQueue->offset = sizeof(headerQueue);
+	currentQueueMapped->toBeRead = 0;
+	printf("readAndInit queue stats = ID %d #elts %d offset %d total size %d\n", currentQueue->id, currentQueue->numberOfElement, currentQueue->offset, currentQueue->totalSize);
 
 	return;
 }
@@ -263,11 +328,14 @@ int main()
 	unsigned char* queueMappingArray = NULL;
 	structPacket packet1;
 	structPacket packet2;
+	int sizePacket = 0;
+	int queueToPurge = 0;
 	memset(&packet1, 0, sizeof(structPacket));
 
 	queueMappingArray = malloc(numberOfQueue * sizeof(queueMapping));
 	memset(queueMappingArray, 0, numberOfQueue * sizeof(queueMapping));
 	printf("size of queuemappingarray = %d\n", numberOfQueue * sizeof(queueMapping));
+	
 	printQueueMappingArray(queueMappingArray, numberOfQueue);
 	printf("Buffer byte  %p\n", pBufferByte);
 	bufferInit(&pBufferByte, sizeBuffer);
@@ -280,10 +348,124 @@ int main()
 	printBufferWithSize(pBufferByte, sizeBuffer);
 	printf("back to main again\n");
 	//packetGenerator(11, &packet1.packetData);
+	printf("\n");
+	while (intStop == 0)
+	{
+		printf("input packet size\n");
+		scanf_s("%d", &sizePacket);
+		queueCheck(&currentQueueId, sizePacket, queueMappingArray, NULL);
+		printQueueMappingArrayReadable(queueMappingArray, numberOfQueue);
+		retrieveQueueAddressFromId(currentQueueId, queueMappingArray, &pQueueByte);
 
+		printf("currentQueueId = %X\n", currentQueueId);
+		printf("current queue address = %p\n", pQueueByte);
+		packetAllocAndCopyToQueue(pQueueByte, &packet1, sizePacket);
+		printBufferWithSize(pBufferByte, sizeBuffer);
+		printf("continue?\n");
+		scanf_s("%d", &intStop);
+		printf("type in the queue to purge or 0 if u don't wanna purge any queue\nQueue list = \n");
+		for (int i = 0; i < numberOfQueue; i++)
+		{
+			printf("%d ", 0x11 + i);
+		}
+		printf("\n");
+		scanf_s("%d", &queueToPurge);
+		while (queueToPurge != 0)
+		{
+
+			while ((queueToPurge < 0x11 && queueToPurge != 0) || queueToPurge > 0x11 + numberOfQueue - 1)
+			{
+				printf("my brother in Christ, da queue u selected doesn't exist\n");
+				scanf_s("%d", &queueToPurge);
+			}
+			if (queueToPurge == 0) { break; }
+			printf("queue %d to be purged\n");
+			readAndInitQueue(queueToPurge, queueMappingArray);
+			printQueueMappingArray(queueMappingArray, numberOfQueue);
+			printBufferWithSize(pBufferByte, sizeBuffer);
+			printf("exit 0 or type in another queue?\n ");
+			scanf_s("%d", &queueToPurge);
+			printf("queue to purge = %d\n", queueToPurge);
+
+			
+		}
+		
+		
+
+	}
+	/*
+	readAndInitQueue(0x11,queueMappingArray);
+	printQueueMappingArray(queueMappingArray, numberOfQueue);
+	printBufferWithSize(pBufferByte, sizeBuffer);
+	readAndInitQueue(0x12, queueMappingArray);
+	printQueueMappingArray(queueMappingArray, numberOfQueue);
+	printBufferWithSize(pBufferByte, sizeBuffer);
+	readAndInitQueue(0x13, queueMappingArray);
+	printQueueMappingArray(queueMappingArray, numberOfQueue);
+	printBufferWithSize(pBufferByte, sizeBuffer);
+	*/
+	/*
+	queueCheck(&currentQueueId, 10, queueMappingArray, NULL);
+	queueMapping* currentQueueMapped = (queueMapping*)(queueMappingArray + 0*sizeof(queueMapping));
+	printf("queueMappingArray = %X, %d, %p, %p\n", currentQueueMapped->id, currentQueueMapped->queueOffset, currentQueueMapped->buffer, currentQueueMapped->queueAddress);
+	packetAllocAndCopyToQueue(currentQueueMapped->queueAddress, &packet1, 10);
+	printBufferWithSize(pBufferByte, sizeBuffer);
+	packetAllocAndCopyToQueue(currentQueueMapped->queueAddress, &packet2, 938);
+//	printBufferWithSize(pBufferByte, sizeBuffer);
+	*/
+	/*
+	queueCheck(&currentQueueId, 10, queueMappingArray, NULL);
+	retrieveQueueAddressFromId(currentQueueId, queueMappingArray, &pQueueByte);
 	
+	printf("currentQueueId = %X\n", currentQueueId);
+	printf("current queue address = %p\n", pQueueByte);
+	packetAllocAndCopyToQueue(pQueueByte, &packet1, 10);
+	printBufferWithSize(pBufferByte, sizeBuffer);
 	
-	
+	queueCheck(&currentQueueId, 10, queueMappingArray, NULL);
+	retrieveQueueAddressFromId(currentQueueId, queueMappingArray, &pQueueByte);
+
+	printf("currentQueueId = %X\n", currentQueueId);
+	printf("current queue address = %p\n", pQueueByte);
+	packetAllocAndCopyToQueue(pQueueByte, &packet1, 10);
+	printBufferWithSize(pBufferByte, sizeBuffer);
+	queueCheck(&currentQueueId, 10, queueMappingArray, NULL);
+	retrieveQueueAddressFromId(currentQueueId, queueMappingArray, &pQueueByte);
+
+	printf("currentQueueId = %X\n", currentQueueId);
+	printf("current queue address = %p\n", pQueueByte);
+	packetAllocAndCopyToQueue(pQueueByte, &packet1, 10);
+	printBufferWithSize(pBufferByte, sizeBuffer);
+	queueCheck(&currentQueueId, 10, queueMappingArray, NULL);
+	retrieveQueueAddressFromId(currentQueueId, queueMappingArray, &pQueueByte);
+
+	printf("currentQueueId = %X\n", currentQueueId);
+	printf("current queue address = %p\n", pQueueByte);
+	packetAllocAndCopyToQueue(pQueueByte, &packet1, 10);
+	printBufferWithSize(pBufferByte, sizeBuffer);
+	queueCheck(&currentQueueId, 900, queueMappingArray, NULL);
+	retrieveQueueAddressFromId(currentQueueId, queueMappingArray, &pQueueByte);
+
+	printf("currentQueueId = %X\n", currentQueueId);
+	printf("current queue address = %p\n", pQueueByte);
+	packetAllocAndCopyToQueue(pQueueByte, &packet1, 900);
+	printBufferWithSize(pBufferByte, sizeBuffer);
+	queueCheck(&currentQueueId, 400, queueMappingArray, NULL);
+	retrieveQueueAddressFromId(currentQueueId, queueMappingArray, &pQueueByte);
+
+	printf("currentQueueId = %X\n", currentQueueId);
+	printf("current queue address = %p\n", pQueueByte);
+	packetAllocAndCopyToQueue(pQueueByte, &packet1, 400);
+	printBufferWithSize(pBufferByte, sizeBuffer);
+	queueCheck(&currentQueueId, 900, queueMappingArray, NULL);
+	retrieveQueueAddressFromId(currentQueueId, queueMappingArray, &pQueueByte);
+
+	printf("currentQueueId = %X\n", currentQueueId);
+	printf("current queue address = %p\n", pQueueByte);
+	packetAllocAndCopyToQueue(pQueueByte, &packet1, 900);
+	printBufferWithSize(pBufferByte, sizeBuffer);
+	*/
+
 	/*
 	queueFromBuffer(pBufferByte, &pQueueByte,idQueue1);
 	printf("queue address = %p\n", pQueueByte);

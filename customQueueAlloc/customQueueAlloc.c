@@ -19,7 +19,7 @@ rather than merely incrementing by 1
 #include<stdbool.h>
 
 #define sizeBuffer 20000
-#define numberOfQueue 20
+#define numberOfQueue 200
 
 int intStop = 0;
 int currentQueueId = 0x11;
@@ -202,7 +202,7 @@ void packetAllocAndCopyToQueue(unsigned char* queue, structPacket* packet, int s
 
 void splitBufferIntoSegments(unsigned char* buffer, int numberOfSegment, bool bQueue, unsigned char* queueMappingArray)
 {
-	int id = 0x11;
+	int id = 0x111;
 	headerFreeMemory headerCurrentSegment;
 	queueMapping* currentQueueMapping = queueMappingArray;
 	printf("currentQueueMapping = %p queueMappingArray = %p\n", currentQueueMapping, queueMappingArray);
@@ -219,7 +219,7 @@ void splitBufferIntoSegments(unsigned char* buffer, int numberOfSegment, bool bQ
 //		printBufferWithSize(buffer, sizeBuffer);
 		memcpy((buffer + headerCurrentSegment.offset), &headerCurrentSegment, sizeof(headerFreeMemory));
 		//if (i % 10 == 0) { id = id + 0x10; }
-		if (i != 0) { id = id + (int)(0x10 * ((i - i % 10) / i)) + (int)(((i % 10 - (i - 1) % 10))); }
+		if (i != 0) { id = id + (int)(0x60 * ((i - i % 100) / i)) + (int)(0x10 * ((i - i % 10) / i)) + (int)(((i % 10 - (i - 1) % 10)));; }
 		
 		if (bQueue == 1) { queueFromBuffer(buffer + headerCurrentSegment.offset, NULL, id); }
 		if (queueMappingArray != NULL) 
